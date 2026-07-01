@@ -12,6 +12,7 @@ import logging
 import clash
 import edbData
 import editProps
+import georeferencing
 
 # --- 로깅 설정 ---
 # 1. 기본 로거 레벨을 WARNING으로 설정하여 서드파티 라이브러리 로그 억제
@@ -207,6 +208,78 @@ def process_properties_endpoint(
     except Exception as e:
         remove_files([input_path, output_path])
         logger.error(f"Error in Process Properties ({action}): {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- 신규 엔드포인트: Georeferencing 주입 ---
+
+@app.post("/inject-georeferencing", response_class=FileResponse)
+def inject_georeferencing_endpoint(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    eastings: float = Form(...),
+    northings: float = Form(...),
+    orthogonalHeight: float = Form(0.0),
+    rotationAngle: float = Form(...),
+    crsName: str = Form("EPSG:5514"),
+    crsDescription: str = Form("S-JTSK / Krovak East North"),
+    crsGeodeticDatum: str = Form("S-JTSK"),
+    crsVerticalDatum: str = Form("Baltic after adjustment"),
+    crsMapProjection: str = Form("Krovak"),
+    crsMapZone: str = Form("Undefined"),
+    scale: float = Form(1.0),
+    scaleY: Optional[float] = Form(None)
+):
+    """
+    IFC 파일을 업로드하고 좌표 및 회전각 정보를 받아 지리정보(Georeferencing)를 주입하고,
+    Express ID 기준으로 정렬된 새로운 IFC 파일을 반환합니다. (IFC4 / IFC4x3 전용)
+    """
+    request_id = str(uuid.uuid4())
+    input_path = f"temp_geo_input_{request_id}.ifc"
+    output_path = f"temp_geo_output_{request_id}.ifc"
+
+    try:
+        # 업로드된 파일 저장
+        with open(input_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        logger.info(f"Starting georeferencing injection for request {request_id}")
+        
+        # georeferencing 모듈 호출
+        georeferencing.inject_geographic_crs(
+            file_path=input_path,
+            output_path=output_path,
+            eastings=eastings,
+            northings=northings,
+            orthogonal_height=orthogonalHeight,
+            rotation_angle=rotationAngle,
+            crs_name=crsName,
+            crs_description=crsDescription,
+            crs_geodetic_datum=crsGeodeticDatum,
+            crs_vertical_datum=crsVerticalDatum,
+            crs_map_projection=crsMapProjection,
+            crs_map_zone=crsMapZone,
+            scale=scale,
+            scale_y=scaleY
+        )
+
+        if not os.path.exists(output_path):
+            raise HTTPException(status_code=500, detail="Georeferencing injection failed.")
+
+        # 파일 반환 후 임시 파일 삭제
+        background_tasks.add_task(remove_files, [input_path, output_path])
+
+        return FileResponse(
+            path=output_path,
+            filename=f"{file.filename.replace('.ifc', '')}_georeferenced.ifc",
+            media_type='application/octet-stream'
+        )
+    except ValueError as ve:
+        remove_files([input_path, output_path])
+        logger.error(f"Validation error in georeferencing: {ve}")
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        remove_files([input_path, output_path])
+        logger.error(f"Error in georeferencing: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
