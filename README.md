@@ -11,15 +11,17 @@
     *   간섭이 발생한 두 객체에 대해 시각적 구분을 위한 색상(빨강/초록) 정보를 주입합니다.
     *   기본 스냅샷(Snapshot) 이미지를 생성하여 포함시킵니다.
 *   **EDB 데이터 연동 및 IFC 속성 추가**: IFC 파일을 업로드하면 EDB API를 조회하여 태그(`KENC_Tag`)가 일치하는 요소에 새로운 PropertySet을 자동으로 추가하거나 업데이트합니다.
+*   **커스텀 프로퍼티 조작 (추가/삭제)**: 객체의 Express ID 배열과 수정할 PropertySet 데이터를 기반으로, 기존의 일대다 공유 관계(Pset Sharing)를 해치지 않으면서 정교하게 속성을 주입(`add`)하거나 삭제(`delete`)하고 고아 엔티티를 정리합니다.
+*   **지리정보 주입 및 업데이트 (Georeferencing)**: IFC4 / IFC4x3 IFC 파일에 `IfcProjectedCRS`와 `IfcMapConversion` 엔티티를 생성하거나 기존 엔티티를 업데이트하여 정밀 지리좌표(Eastings, Northings, Orthogonal Height, Rotation Angle 등) 및 투영 좌표계 정보를 주입합니다.
 *   **IFC 파일 자동 정렬**: 데이터가 추가된 IFC 파일의 DATA 섹션을 ExpressID 기준으로 오름차순 정렬합니다.
-*   **REST API 제공**: HTTP POST 요청을 통해 간섭 체크를 요청하거나 데이터가 병합된 파일 결과를 다운로드할 수 있습니다.
+*   **REST API 제공**: HTTP POST 요청을 통해 간섭 체크를 요청하거나 데이터가 병합/수정된 파일 결과를 다운로드할 수 있습니다.
 
 ## 설치 방법
 
 1. 저장소를 복제합니다.
    ```bash
-   git clone https://github.com/your_id/clash.git
-   cd clash
+   git clone https://github.com/your_id/Dev-IfcUtilities.git
+   cd Dev-IfcUtilities
    ```
 
 2. Python 가상 환경을 생성하고 활성화합니다.
@@ -96,3 +98,33 @@ python edbData.py <input_file.ifc>
 *   **Content-Type**: `multipart/form-data`
 *   **Request Body**: `file` (업로드할 원본 IFC 파일 첨부) 
 *   **Response**: `[원본파일명]_edb.ifc` 파일 다운로드 (프로퍼티가 업데이트되고 ExpressID순으로 정렬된 IFC 파일)
+
+### 3. 커스텀 프로퍼티 조작 (Process Custom Properties)
+*   **Endpoint**: `POST /process-properties`
+*   **Content-Type**: `multipart/form-data`
+*   **Request Body**:
+    *   `file`: 업로드할 원본 IFC 파일 (`.ifc` 형식)
+    *   `action`: 수행할 작업 (`add` 또는 `delete`)
+    *   `expressIds`: 속성을 변경할 대상 객체의 Express ID 배열 (JSON String 형식, 예: `"[123, 456]"`)
+    *   `propertiesData`: 추가/삭제할 PropertySet 및 Property 정보 (JSON String 형식)
+        *   예: `"[{\"name\": \"Pset_Custom\", \"props\": [{\"name\": \"PropName\", \"value\": \"PropValue\"}]}]"`
+*   **Response**: `[원본파일명]_modified.ifc` 파일 다운로드 (프로퍼티가 추가/삭제되고 ExpressID순으로 정렬된 IFC 파일)
+
+### 4. 지리정보 주입 (Inject Georeferencing)
+*   **Endpoint**: `POST /inject-georeferencing`
+*   **Content-Type**: `multipart/form-data`
+*   **Request Body**:
+    *   `file`: 업로드할 원본 IFC 파일 (`.ifc` 형식, IFC4/IFC4x3 전용)
+    *   `eastings`: 동향 좌표 (Eastings, `float`, 필수)
+    *   `northings`: 북향 좌표 (Northings, `float`, 필수)
+    *   `orthogonalHeight`: 표고/타원체고 (Orthogonal Height, `float`, 기본값: `0.0`)
+    *   `rotationAngle`: 회전각 (도(degree) 단위, `float`, 필수. 내부적으로 로컬 X축의 동향/북향 방향 벡터 `XAxisAbscissa`, `XAxisOrdinate`로 자동 변환)
+    *   `crsName`: 투영좌표계 이름 (`string`, 기본값: `"EPSG:5514"`)
+    *   `crsDescription`: 좌표계 설명 (`string`, 기본값: `"S-JTSK / Krovak East North"`)
+    *   `crsGeodeticDatum`: 지구 타원체 / 측지계 (`string`, 기본값: `"S-JTSK"`)
+    *   `crsVerticalDatum`: 수직 기준계 (`string`, 기본값: `"Baltic after adjustment"`)
+    *   `crsMapProjection`: 지도 투영법 (`string`, 기본값: `"Krovak"`)
+    *   `crsMapZone`: 투영 지역 구분 (`string`, 기본값: `"Undefined"`)
+    *   `scale`: 축척 비율 (`float`, 기본값: `1.0`)
+    *   `scaleY`: Y축 축척 비율 (`float`, 선택사항)
+*   **Response**: `[원본파일명]_georeferenced.ifc` 파일 다운로드 (지리정보가 주입/업데이트되고 ExpressID순으로 정렬된 IFC 파일)
