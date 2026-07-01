@@ -15,11 +15,14 @@
 *   **지리정보 주입 및 업데이트 (Georeferencing)**: IFC4 / IFC4x3 IFC 파일에 `IfcProjectedCRS`와 `IfcMapConversion` 엔티티를 생성하거나 기존 엔티티를 업데이트하여 정밀 지리좌표(Eastings, Northings, Orthogonal Height, Rotation Angle 등) 및 투영 좌표계 정보를 주입합니다.
 *   **IFC 파일 자동 정렬**: 데이터가 추가된 IFC 파일의 DATA 섹션을 ExpressID 기준으로 오름차순 정렬합니다.
 *   **REST API 제공**: HTTP POST 요청을 통해 간섭 체크를 요청하거나 데이터가 병합/수정된 파일 결과를 다운로드할 수 있습니다.
+*   **REST API 제공**: HTTP POST 요청을 통해 간섭 체크를 요청하거나 데이터가 병합/수정된 파일 결과를 다운로드할 수 있습니다.
 
 ## 설치 방법
 
 1. 저장소를 복제합니다.
    ```bash
+   git clone https://github.com/your_id/Dev-IfcUtilities.git
+   cd Dev-IfcUtilities
    git clone https://github.com/your_id/Dev-IfcUtilities.git
    cd Dev-IfcUtilities
    ```
