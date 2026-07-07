@@ -12,10 +12,11 @@
     *   기본 스냅샷(Snapshot) 이미지를 생성하여 포함시킵니다.
 *   **EDB 데이터 연동 및 IFC 속성 추가**: IFC 파일을 업로드하면 EDB API를 조회하여 태그(`KENC_Tag`)가 일치하는 요소에 새로운 PropertySet을 자동으로 추가하거나 업데이트합니다.
 *   **커스텀 프로퍼티 조작 (추가/삭제)**: 객체의 Express ID 배열과 수정할 PropertySet 데이터를 기반으로, 기존의 일대다 공유 관계(Pset Sharing)를 해치지 않으면서 정교하게 속성을 주입(`add`)하거나 삭제(`delete`)하고 고아 엔티티를 정리합니다.
-*   **지리정보 주입 및 업데이트 (Georeferencing)**: IFC4 / IFC4x3 IFC 파일에 `IfcProjectedCRS`와 `IfcMapConversion` 엔티티를 생성하거나 기존 엔티티를 업데이트하여 정밀 지리좌표(Eastings, Northings, Orthogonal Height, Rotation Angle 등) 및 투영 좌표계 정보를 주입합니다.
+*   **지리정보 주입 및 업데이트 (Georeferencing)**: IFC4 / IFC4x3 IFC 파일에 `IfcProjectedCRS`와 `IfcMapConversion` 엔티티를 생성하거나 기존 엔티티를 업데이트하여 정밀 지리좌표 (Eastings, Northings, Orthogonal Height, Rotation Angle 등) 및 투영 좌표계 정보를 주입합니다.
+*   **공간 계층 구조 재구성 (Spatial Structure Update)**: 파일명 패턴 또는 사용자 입력값을 기반으로 공간 구조(Site, Building, Storey)를 신규 생성 및 개편하고, 기존 하위 공간(Space) 및 부재(Element)를 새로운 계층으로 재배치합니다.
 *   **IFC 파일 자동 정렬**: 데이터가 추가된 IFC 파일의 DATA 섹션을 ExpressID 기준으로 오름차순 정렬합니다.
 *   **REST API 제공**: HTTP POST 요청을 통해 간섭 체크를 요청하거나 데이터가 병합/수정된 파일 결과를 다운로드할 수 있습니다.
-*   **REST API 제공**: HTTP POST 요청을 통해 간섭 체크를 요청하거나 데이터가 병합/수정된 파일 결과를 다운로드할 수 있습니다.
+
 
 ## 설치 방법
 
@@ -131,3 +132,14 @@ python edbData.py <input_file.ifc>
     *   `scale`: 축척 비율 (`float`, 기본값: `1.0`)
     *   `scaleY`: Y축 축척 비율 (`float`, 선택사항)
 *   **Response**: `[원본파일명]_georeferenced.ifc` 파일 다운로드 (지리정보가 주입/업데이트되고 ExpressID순으로 정렬된 IFC 파일)
+
+### 5. 공간 계층 구조 재구성 (Change Spatial Structure)
+*   **Endpoint**: `POST /change-spatial-structure`
+*   **Content-Type**: `multipart/form-data`
+*   **Request Body**:
+    *   `file`: 업로드할 원본 IFC 파일 (`.ifc` 형식)
+    *   `siteName`: 새로 지정할 Site 이름 (`string`, 선택사항, 입력하지 않을 시 파일명 패턴 `M\d{4}`에서 자동 파싱)
+    *   `buildingName`: 새로 지정할 Building 이름 (`string`, 선택사항, 입력하지 않을 시 파일명 패턴 `M\d{4}`에서 자동 파싱)
+    *   `storeyName`: 새로 지정할 Storey 이름 (`string`, 선택사항, 입력하지 않을 시 파일명 패턴 `M\d{4}`에서 자동 파싱)
+*   **Response**: `[원본파일명]_spatial.ifc` 파일 다운로드 (공간 구조가 재배치되고 ExpressID순으로 정렬된 IFC 파일)
+

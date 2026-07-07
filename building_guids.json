@@ -1,0 +1,38 @@
+[
+  {
+    "unit": 5,
+    "building": 31,
+    "guid": "ooSP7lxJjooewjID_V8KS5",
+    "longName": "Containment Building Unit5"
+  },
+  {
+    "unit": 6,
+    "building": 31,
+    "guid": "3hUR2HCp11XvaiGvHyHjVi",
+    "longName": "Containment Building Unit6"
+  },
+  {
+    "unit": 5,
+    "building": 32,
+    "guid": "2MtQlukcj2CQRf5hPoq9TB",
+    "longName": "Auxiliary Building Unit5"
+  },
+  {
+    "unit": 6,
+    "building": 32,
+    "guid": "1luy$fQlb1QjIdl$YAQ1cA",
+    "longName": "Auxiliary Building Unit6"
+  },
+  {
+    "unit": 0,
+    "building": 33,
+    "guid": "1l9i1tm9vFbeBuzWZ13hYs",
+    "longName": "Compound Building"
+  },
+  {
+    "unit": 0,
+    "building": 34,
+    "guid": "3BFTd79lnBNfMDPlKPeKZH",
+    "longName": "Emergency Response Centre"
+  }
+]

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -13,6 +13,8 @@ import clash
 import edbData
 import editProps
 import georeferencing
+import spatialStructure
+
 
 # --- 로깅 설정 ---
 # 1. 기본 로거 레벨을 WARNING으로 설정하여 서드파티 라이브러리 로그 억제
@@ -147,13 +149,17 @@ def add_edb_data_endpoint(background_tasks: BackgroundTasks, file: UploadFile = 
         if not os.path.exists(output_path):
             raise HTTPException(status_code=500, detail="EDB Data processing failed.")
 
-        # 파일 반환 후 임시 파일 삭제
-        background_tasks.add_task(remove_files, [input_path, output_path])
+        # 파일 내용을 메모리로 읽기
+        with open(output_path, "rb") as f:
+            content = f.read()
 
-        return FileResponse(
-            path=output_path,
-            filename=f"{file.filename.replace('.ifc', '')}_edb.ifc",
-            media_type='application/octet-stream'
+        # 파일 반환 후 임시 파일 삭제
+        remove_files([input_path, output_path])
+
+        return Response(
+            content=content,
+            media_type='application/octet-stream',
+            headers={"Content-Disposition": f"attachment; filename={file.filename.replace('.ifc', '')}_edb.ifc"}
         )
     except Exception as e:
         remove_files([input_path, output_path])
@@ -198,12 +204,15 @@ def process_properties_endpoint(
         if not os.path.exists(output_path):
             raise HTTPException(status_code=500, detail="Property processing failed.")
 
-        background_tasks.add_task(remove_files, [input_path, output_path])
+        with open(output_path, "rb") as f:
+            content = f.read()
 
-        return FileResponse(
-            path=output_path,
-            filename=f"{file.filename.replace('.ifc', '')}_modified.ifc",
-            media_type='application/octet-stream'
+        remove_files([input_path, output_path])
+
+        return Response(
+            content=content,
+            media_type='application/octet-stream',
+            headers={"Content-Disposition": f"attachment; filename={file.filename.replace('.ifc', '')}_modified.ifc"}
         )
     except Exception as e:
         remove_files([input_path, output_path])
@@ -265,13 +274,16 @@ def inject_georeferencing_endpoint(
         if not os.path.exists(output_path):
             raise HTTPException(status_code=500, detail="Georeferencing injection failed.")
 
-        # 파일 반환 후 임시 파일 삭제
-        background_tasks.add_task(remove_files, [input_path, output_path])
+        with open(output_path, "rb") as f:
+            content = f.read()
 
-        return FileResponse(
-            path=output_path,
-            filename=f"{file.filename.replace('.ifc', '')}_georeferenced.ifc",
-            media_type='application/octet-stream'
+        # 파일 반환 후 임시 파일 삭제
+        remove_files([input_path, output_path])
+
+        return Response(
+            content=content,
+            media_type='application/octet-stream',
+            headers={"Content-Disposition": f"attachment; filename={file.filename.replace('.ifc', '')}_georeferenced.ifc"}
         )
     except ValueError as ve:
         remove_files([input_path, output_path])
@@ -280,6 +292,60 @@ def inject_georeferencing_endpoint(
     except Exception as e:
         remove_files([input_path, output_path])
         logger.error(f"Error in georeferencing: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- 신규 엔드포인트: 공간 구조(Spatial Structure) 변경 추가 ---
+
+@app.post("/change-spatial-structure", response_class=FileResponse)
+def change_spatial_structure_endpoint(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    siteName: Optional[str] = Form(None),
+    buildingName: Optional[str] = Form(None),
+    storeyName: Optional[str] = Form(None)
+):
+    """
+    IFC 파일을 업로드하고 공간 구조(Spatial Structure)를 정렬 및 재배치한 후,
+    Express ID 기준으로 정렬된 새로운 IFC 파일을 반환합니다.
+    """
+    request_id = str(uuid.uuid4())
+    input_path = f"temp_spatial_input_{request_id}.ifc"
+    output_path = f"temp_spatial_output_{request_id}.ifc"
+
+    try:
+        # 업로드된 파일 저장
+        with open(input_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        logger.info(f"Starting change spatial structure for request {request_id}")
+        
+        # spatialStructure 모듈 호출
+        spatialStructure.change_spatial_structure(
+            input_file_path=input_path,
+            output_file_path=output_path,
+            site_name=siteName,
+            building_name=buildingName,
+            storey_name=storeyName,
+            original_file_name=file.filename
+        )
+
+        if not os.path.exists(output_path):
+            raise HTTPException(status_code=500, detail="Spatial structure transformation failed.")
+
+        with open(output_path, "rb") as f:
+            content = f.read()
+
+        # 파일 반환 후 임시 파일 삭제
+        remove_files([input_path, output_path])
+
+        return Response(
+            content=content,
+            media_type='application/octet-stream',
+            headers={"Content-Disposition": f"attachment; filename={file.filename.replace('.ifc', '')}_spatial.ifc"}
+        )
+    except Exception as e:
+        remove_files([input_path, output_path])
+        logger.error(f"Error in change spatial structure: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
