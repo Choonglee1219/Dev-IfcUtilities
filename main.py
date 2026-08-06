@@ -149,17 +149,14 @@ def add_edb_data_endpoint(background_tasks: BackgroundTasks, file: UploadFile = 
         if not os.path.exists(output_path):
             raise HTTPException(status_code=500, detail="EDB Data processing failed.")
 
-        # 파일 내용을 메모리로 읽기
-        with open(output_path, "rb") as f:
-            content = f.read()
+        # 전송 후 백그라운드에서 임시 파일 삭제 예약
+        background_tasks.add_task(remove_files, [input_path, output_path])
 
-        # 파일 반환 후 임시 파일 삭제
-        remove_files([input_path, output_path])
-
-        return Response(
-            content=content,
-            media_type='application/octet-stream',
-            headers={"Content-Disposition": f"attachment; filename={file.filename.replace('.ifc', '')}_edb.ifc"}
+        out_filename = f"{file.filename.replace('.ifc', '')}_edb.ifc"
+        return FileResponse(
+            path=output_path,
+            filename=out_filename,
+            media_type='application/octet-stream'
         )
     except Exception as e:
         remove_files([input_path, output_path])
@@ -204,15 +201,14 @@ def process_properties_endpoint(
         if not os.path.exists(output_path):
             raise HTTPException(status_code=500, detail="Property processing failed.")
 
-        with open(output_path, "rb") as f:
-            content = f.read()
+        # 전송 후 백그라운드에서 임시 파일 삭제 예약
+        background_tasks.add_task(remove_files, [input_path, output_path])
 
-        remove_files([input_path, output_path])
-
-        return Response(
-            content=content,
-            media_type='application/octet-stream',
-            headers={"Content-Disposition": f"attachment; filename={file.filename.replace('.ifc', '')}_modified.ifc"}
+        out_filename = f"{file.filename.replace('.ifc', '')}_modified.ifc"
+        return FileResponse(
+            path=output_path,
+            filename=out_filename,
+            media_type='application/octet-stream'
         )
     except Exception as e:
         remove_files([input_path, output_path])
@@ -235,8 +231,7 @@ def inject_georeferencing_endpoint(
     crsVerticalDatum: str = Form("Baltic after adjustment"),
     crsMapProjection: str = Form("Krovak"),
     crsMapZone: str = Form("Undefined"),
-    scale: float = Form(1.0),
-    scaleY: Optional[float] = Form(None)
+    scale: Optional[float] = Form(None)
 ):
     """
     IFC 파일을 업로드하고 좌표 및 회전각 정보를 받아 지리정보(Georeferencing)를 주입하고,
@@ -267,23 +262,20 @@ def inject_georeferencing_endpoint(
             crs_vertical_datum=crsVerticalDatum,
             crs_map_projection=crsMapProjection,
             crs_map_zone=crsMapZone,
-            scale=scale,
-            scale_y=scaleY
+            scale=scale
         )
 
         if not os.path.exists(output_path):
             raise HTTPException(status_code=500, detail="Georeferencing injection failed.")
 
-        with open(output_path, "rb") as f:
-            content = f.read()
+        # 전송 후 백그라운드에서 임시 파일 삭제 예약
+        background_tasks.add_task(remove_files, [input_path, output_path])
 
-        # 파일 반환 후 임시 파일 삭제
-        remove_files([input_path, output_path])
-
-        return Response(
-            content=content,
-            media_type='application/octet-stream',
-            headers={"Content-Disposition": f"attachment; filename={file.filename.replace('.ifc', '')}_georeferenced.ifc"}
+        out_filename = f"{file.filename.replace('.ifc', '')}_georeferenced.ifc"
+        return FileResponse(
+            path=output_path,
+            filename=out_filename,
+            media_type='application/octet-stream'
         )
     except ValueError as ve:
         remove_files([input_path, output_path])
@@ -332,16 +324,14 @@ def change_spatial_structure_endpoint(
         if not os.path.exists(output_path):
             raise HTTPException(status_code=500, detail="Spatial structure transformation failed.")
 
-        with open(output_path, "rb") as f:
-            content = f.read()
+        # 전송 후 백그라운드에서 임시 파일 삭제 예약
+        background_tasks.add_task(remove_files, [input_path, output_path])
 
-        # 파일 반환 후 임시 파일 삭제
-        remove_files([input_path, output_path])
-
-        return Response(
-            content=content,
-            media_type='application/octet-stream',
-            headers={"Content-Disposition": f"attachment; filename={file.filename.replace('.ifc', '')}_spatial.ifc"}
+        out_filename = f"{file.filename.replace('.ifc', '')}_spatial.ifc"
+        return FileResponse(
+            path=output_path,
+            filename=out_filename,
+            media_type='application/octet-stream'
         )
     except Exception as e:
         remove_files([input_path, output_path])
