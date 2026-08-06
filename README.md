@@ -129,8 +129,7 @@ python edbData.py <input_file.ifc>
     *   `crsVerticalDatum`: 수직 기준계 (`string`, 기본값: `"Baltic after adjustment"`)
     *   `crsMapProjection`: 지도 투영법 (`string`, 기본값: `"Krovak"`)
     *   `crsMapZone`: 투영 지역 구분 (`string`, 기본값: `"Undefined"`)
-    *   `scale`: 축척 비율 (`float`, 기본값: `1.0`)
-    *   `scaleY`: Y축 축척 비율 (`float`, 선택사항)
+    *   `scale`: 축척 비율 (`float`, 선택사항. 미지정 시 IFC 모델의 길이 단위(예: `m` $\rightarrow$ `1.0`, `mm` $\rightarrow$ `0.001`)를 자동으로 감지하여 설정)
 *   **Response**: `[원본파일명]_georeferenced.ifc` 파일 다운로드 (지리정보가 주입/업데이트되고 ExpressID순으로 정렬된 IFC 파일)
 
 ### 5. 공간 계층 구조 재구성 (Change Spatial Structure)

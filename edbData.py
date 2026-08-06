@@ -7,21 +7,12 @@ def adding_edbData(input_file_path,
                    output_file_path):
     model = ifcopenshell.open(input_file_path)
 
-    # Search elements which have EDB_tag_no property
+    # Search elements which have Tag attribute
     elements_with_edbData = []
-    for rel in model.by_type("IfcRelDefinesByProperties"):
-        pset = rel.RelatingPropertyDefinition
-        if pset and pset.is_a("IfcPropertySet") and pset.Name == "KENC_Tag":
-            tag_no = None
-            for prop in (pset.HasProperties or []):
-                if prop.Name == "EDB_tag_no" and getattr(prop, "NominalValue", None):
-                    tag_no = prop.NominalValue.wrappedValue
-                    break
-            
-            if tag_no:
-                for obj in rel.RelatedObjects:
-                    if obj.is_a("IfcElement"):
-                        elements_with_edbData.append((obj, tag_no))
+    for element in model.by_type("IfcElement"):
+        tag_no = getattr(element, "Tag", None)
+        if tag_no and str(tag_no).strip():
+            elements_with_edbData.append((element, str(tag_no).strip()))
 
     # Create list of tag_no in elements_sith_edbData
     tag_list = [{"tag_no": tag_no} for _, tag_no in elements_with_edbData]
