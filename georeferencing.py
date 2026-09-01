@@ -75,10 +75,116 @@ def deg_to_dms(deg: float):
 
     return (d, m, s, micro_s)
 
-def update_site_geographic_ref(ifc_file, eastings: float, northings: float, orthogonal_height: float, crs_name: str):
+def update_site_object_placement(
+    ifc_file,
+    site,
+    eastings: float,
+    northings: float,
+    orthogonal_height: float,
+    scale: float,
+    xaxis_abscissa: float = 1.0,
+    xaxis_ordinate: float = 0.0
+):
+    """
+    IFC 표준 계층형 배치(PlacementRelTo) 방식으로 Georeferencing을 주입합니다.
+    IfcSite가 원래 가지고 있던 로컬 위치 및 회전(RelativePlacement)은 절대 덮어쓰지 않고 100% 보존하며,
+    전역 좌표(Eastings, Northings, Height) 및 전역 회전벡터를 가진 신규 부모 IfcLocalPlacement를 생성하여
+    site.ObjectPlacement.PlacementRelTo 로 연결합니다.
+
+    이를 통해:
+    1. Solibri 등 상용 BIM 도구: 부모-자식 변환 행렬을 자동 합성(Geo + Local)하여 완벽한 Global 좌표/각도 표시
+    2. TRA88 등 WebGL 뷰어: 부모 PlacementRelTo만 분리(null)하면 원래 로컬 위치/각도가 무손실로 렌더링
+    """
+    if not scale or scale <= 0:
+        scale = 1.0
+
+    x = float(eastings / scale)
+    y = float(northings / scale)
+    z = float(orthogonal_height / scale)
+    coords = (x, y, z)
+
+    abscissa = 1.0 if xaxis_abscissa is None else float(xaxis_abscissa)
+    ordinate = 0.0 if xaxis_ordinate is None else float(xaxis_ordinate)
+
+    axis_ratios = (0.0, 0.0, 1.0)
+    ref_dir_ratios = (abscissa, ordinate, 0.0)
+
+    # 전역 지리참조 좌표 및 방향을 담을 신규 엔티티 생성
+    new_cp = ifc_file.create_entity("IfcCartesianPoint", Coordinates=coords)
+    new_axis = ifc_file.create_entity("IfcDirection", DirectionRatios=axis_ratios)
+    new_ref_dir = ifc_file.create_entity("IfcDirection", DirectionRatios=ref_dir_ratios)
+    geo_axis2 = ifc_file.create_entity("IfcAxis2Placement3D", Location=new_cp, Axis=new_axis, RefDirection=new_ref_dir)
+
+    local_placement = getattr(site, "ObjectPlacement", None)
+    if not local_placement or not local_placement.is_a("IfcLocalPlacement"):
+        # IfcSite에 ObjectPlacement가 없는 경우: 부모(전역) + 자식(로컬 원점) 계층 생성
+        geo_placement = ifc_file.create_entity("IfcLocalPlacement", RelativePlacement=geo_axis2)
+        site_zero_cp = ifc_file.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0, 0.0))
+        site_axis2 = ifc_file.create_entity("IfcAxis2Placement3D", Location=site_zero_cp)
+        local_placement = ifc_file.create_entity("IfcLocalPlacement", PlacementRelTo=geo_placement, RelativePlacement=site_axis2)
+        site.ObjectPlacement = local_placement
+        logger.info(f"Created new hierarchical ObjectPlacement for IfcSite with parent GeoPlacement (#{geo_placement.id()})={coords}")
+        return
+
+    # IfcSite.ObjectPlacement가 이미 존재하는 경우
+    parent_placement = getattr(local_placement, "PlacementRelTo", None)
+    if parent_placement and parent_placement.is_a("IfcLocalPlacement"):
+        # 이미 부모 PlacementRelTo가 연결되어 있는 경우 (재주입 시)
+        # 기존 부모의 RelativePlacement를 신규 전역 지리참조 엔티티로 교체
+        parent_placement.RelativePlacement = geo_axis2
+        logger.info(f"Updated existing parent PlacementRelTo (#{parent_placement.id()}) RelativePlacement to (#{geo_axis2.id()})={coords}")
+        return
+
+    # PlacementRelTo가 없는 경우:
+    # 기존 RelativePlacement에 거대 전역 좌표(> 1000m)가 이미 직접 들어가 있는지 검사
+    rel_placement = getattr(local_placement, "RelativePlacement", None)
+    if not rel_placement or not rel_placement.is_a("IfcAxis2Placement3D"):
+        site_zero_cp = ifc_file.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0, 0.0))
+        rel_placement = ifc_file.create_entity("IfcAxis2Placement3D", Location=site_zero_cp)
+        local_placement.RelativePlacement = rel_placement
+
+    is_legacy_global = False
+    loc = getattr(rel_placement, "Location", None)
+    if loc and hasattr(loc, "Coordinates") and len(loc.Coordinates) >= 2:
+        cx, cy = loc.Coordinates[0], loc.Coordinates[1]
+        # Check in meters: real-world projected global coordinates are typically > 50,000m (50km)
+        cx_m = abs(float(cx) * scale)
+        cy_m = abs(float(cy) * scale)
+        if cx_m > 50000 or cy_m > 50000:
+            is_legacy_global = True
+
+    # 전역 지리참조 부모 IfcLocalPlacement 생성
+    geo_placement = ifc_file.create_entity("IfcLocalPlacement", RelativePlacement=geo_axis2)
+
+    if is_legacy_global:
+        # 이전 버전에서 직접 주입되어 거대 좌표를 갖고 있던 경우:
+        # 로컬 RelativePlacement를 (0,0,0)으로 리셋하고 부모로 전역 좌표 이동
+        reset_cp = ifc_file.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0, 0.0))
+        rel_placement.Location = reset_cp
+        rel_placement.Axis = None
+        rel_placement.RefDirection = None
+        logger.info(f"Converted legacy global RelativePlacement to (0,0,0) and created parent PlacementRelTo (#{geo_placement.id()})")
+    else:
+        # 원래 모델의 고유 로컬 위치 및 회전이 있는 경우: 100% 무손실 보존!
+        logger.info(f"Preserved original local RelativePlacement (#{rel_placement.id()}) and linked parent PlacementRelTo (#{geo_placement.id()})={coords}")
+
+    # IfcSite의 PlacementRelTo를 전역 지리참조 부모로 연결!
+    local_placement.PlacementRelTo = geo_placement
+
+def update_site_geographic_ref(
+    ifc_file,
+    eastings: float,
+    northings: float,
+    orthogonal_height: float,
+    crs_name: str,
+    scale: float,
+    xaxis_abscissa: float = 1.0,
+    xaxis_ordinate: float = 0.0
+):
     """
     IfcMapConversion의 Eastings, Northings 및 crs_name을 기반으로 pyproj 좌표 변환(WGS84)을 수행하여
-    IfcSite의 RefLatitude, RefLongitude, RefElevation 속성을 주입/업데이트합니다.
+    IfcSite의 RefLatitude, RefLongitude, RefElevation 속성을 주입/업데이트하고,
+    ObjectPlacement 계층 구조(IfcLocalPlacement -> IfcAxis2Placement3D -> Location, Axis, RefDirection)도 주입합니다.
     """
     from pyproj import Transformer
     import ifcopenshell.guid
@@ -95,25 +201,33 @@ def update_site_geographic_ref(ifc_file, eastings: float, northings: float, orth
     except Exception as e:
         logger.warning(f"Could not calculate RefLatitude/RefLongitude from CRS '{crs_name}': {e}")
 
+    if not scale or scale <= 0:
+        scale = 1.0
+
+    # 프로젝트 길이 단위(scale)에 맞추어 RefElevation 환산 (예: mm 모델인 경우 389.0 / 0.001 = 389000.0)
+    ref_elevation_in_project_units = float(orthogonal_height / scale)
+
     sites = ifc_file.by_type("IfcSite")
     if not sites:
         site = ifc_file.create_entity(
             "IfcSite",
             GlobalId=ifcopenshell.guid.new(),
             Name="Default Site",
-            RefElevation=orthogonal_height
+            RefElevation=ref_elevation_in_project_units
         )
         if lat_dms and lon_dms:
             site.RefLatitude = lat_dms
             site.RefLongitude = lon_dms
-        logger.info("Created new IfcSite and updated RefElevation, RefLatitude, RefLongitude.")
+        update_site_object_placement(ifc_file, site, eastings, northings, orthogonal_height, scale, xaxis_abscissa, xaxis_ordinate)
+        logger.info("Created new IfcSite and updated RefElevation, RefLatitude, RefLongitude, and ObjectPlacement.")
     else:
         for site in sites:
-            site.RefElevation = orthogonal_height
+            site.RefElevation = ref_elevation_in_project_units
             if lat_dms and lon_dms:
                 site.RefLatitude = lat_dms
                 site.RefLongitude = lon_dms
-        logger.info(f"Updated {len(sites)} existing IfcSite entity/entities with RefElevation, RefLatitude, RefLongitude.")
+            update_site_object_placement(ifc_file, site, eastings, northings, orthogonal_height, scale, xaxis_abscissa, xaxis_ordinate)
+        logger.info(f"Updated {len(sites)} existing IfcSite entity/entities with RefElevation, RefLatitude, RefLongitude, and ObjectPlacement.")
 
 def inject_geographic_crs(
     file_path: str,
@@ -122,6 +236,8 @@ def inject_geographic_crs(
     northings: float,
     orthogonal_height: float = 0.0,
     rotation_angle: float = None,
+    xaxis_abscissa: float = None,
+    xaxis_ordinate: float = None,
     crs_name: str = "EPSG:5514",
     crs_description: str = "S-JTSK / Krovak East North",
     crs_geodetic_datum: str = "S-JTSK",
@@ -133,7 +249,7 @@ def inject_geographic_crs(
     """
     IFC4/IFC4x3 IFC 파일에 IfcProjectedCRS와 IfcMapConversion 엔티티를 생성하거나 
     기존 엔티티를 찾아 업데이트하여 지리정보(Georeferencing)를 주입합니다.
-    또한 IfcSite의 RefLatitude, RefLongitude, RefElevation 속성을 자동 조율합니다.
+    또한 IfcSite의 RefLatitude, RefLongitude, RefElevation 및 ObjectPlacement 좌표/회전방향을 자동 조율합니다.
     주입 완료 후 Express ID 기준 정렬을 수행하여 파일을 저장합니다.
     """
     # 1. IFC 파일 로드
@@ -154,17 +270,19 @@ def inject_geographic_crs(
         scale = model_calculated_scale
     logger.info(f"Final scale factor applied for IfcMapConversion: {scale}")
 
-    # 4. 회전각 삼각함수 계산
-    # IFC 표준: XAxisAbscissa = cos(θ), XAxisOrdinate = sin(θ)
-    # (CRS 좌표계(East-North)에서 로컬 X축의 동향/북향 방향 성분)
-    # NEXBIM UI 라운드트립: atan2(ordinate, abscissa) = θ ✓
-    xaxis_abscissa = None
-    xaxis_ordinate = None
-    if rotation_angle is not None:
-        angle_rad = math.radians(rotation_angle)
-        xaxis_abscissa = math.cos(angle_rad)
-        xaxis_ordinate = math.sin(angle_rad)
-        logger.info(f"Calculated 2D rotation vector: XAxisAbscissa={xaxis_abscissa:.6f}, XAxisOrdinate={xaxis_ordinate:.6f}")
+    # 4. 회전각 및 방향 벡터 계산
+    if xaxis_abscissa is None or xaxis_ordinate is None:
+        if rotation_angle is not None:
+            angle_rad = math.radians(rotation_angle)
+            xaxis_abscissa = math.cos(angle_rad)
+            xaxis_ordinate = math.sin(angle_rad)
+            logger.info(f"Calculated 2D rotation vector from rotation_angle({rotation_angle}): XAxisAbscissa={xaxis_abscissa:.6f}, XAxisOrdinate={xaxis_ordinate:.6f}")
+        else:
+            xaxis_abscissa = 1.0
+            xaxis_ordinate = 0.0
+            logger.info("No rotation_angle or xAxisAbscissa/Ordinate provided. Defaulting 2D rotation vector to (1.0, 0.0).")
+    else:
+        logger.info(f"Using provided 2D rotation vector: XAxisAbscissa={xaxis_abscissa:.6f}, XAxisOrdinate={xaxis_ordinate:.6f}")
 
     # 5. IfcGeometricRepresentationContext 찾기
     contexts = ifc_file.by_type("IfcGeometricRepresentationContext")
@@ -253,8 +371,8 @@ def inject_geographic_crs(
         map_conversion = ifc_file.create_entity("IfcMapConversion", **kwargs)
         logger.info("Created new IfcMapConversion.")
 
-    # 10. IfcSite RefLatitude, RefLongitude, RefElevation 속성 업데이트
-    update_site_geographic_ref(ifc_file, eastings, northings, orthogonal_height, crs_name)
+    # 10. IfcSite RefLatitude, RefLongitude, RefElevation 및 ObjectPlacement(Location, Axis, RefDirection) 속성 업데이트
+    update_site_geographic_ref(ifc_file, eastings, northings, orthogonal_height, crs_name, scale, xaxis_abscissa, xaxis_ordinate)
 
     # 11. 변경사항 저장
     ifc_file.write(output_path)
