@@ -132,15 +132,22 @@ def update_site_object_placement(
         # 이미 부모 PlacementRelTo가 연결되어 있는 경우 (재주입 시)
         # 기존 부모의 RelativePlacement를 신규 전역 지리참조 엔티티로 교체
         parent_placement.RelativePlacement = geo_axis2
+        # 자식 RelativePlacement에도 회전방향 정보가 보존되도록 업데이트
+        rel_placement = getattr(local_placement, "RelativePlacement", None)
+        if rel_placement and rel_placement.is_a("IfcAxis2Placement3D"):
+            if not getattr(rel_placement, "RefDirection", None):
+                rel_placement.RefDirection = new_ref_dir
+            if not getattr(rel_placement, "Axis", None):
+                rel_placement.Axis = new_axis
         logger.info(f"Updated existing parent PlacementRelTo (#{parent_placement.id()}) RelativePlacement to (#{geo_axis2.id()})={coords}")
         return
 
     # PlacementRelTo가 없는 경우:
-    # 기존 RelativePlacement에 거대 전역 좌표(> 1000m)가 이미 직접 들어가 있는지 검사
+    # 기존 RelativePlacement에 거대 전역 좌표(> 50000m)가 이미 직접 들어가 있는지 검사
     rel_placement = getattr(local_placement, "RelativePlacement", None)
     if not rel_placement or not rel_placement.is_a("IfcAxis2Placement3D"):
         site_zero_cp = ifc_file.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0, 0.0))
-        rel_placement = ifc_file.create_entity("IfcAxis2Placement3D", Location=site_zero_cp)
+        rel_placement = ifc_file.create_entity("IfcAxis2Placement3D", Location=site_zero_cp, Axis=new_axis, RefDirection=new_ref_dir)
         local_placement.RelativePlacement = rel_placement
 
     is_legacy_global = False
@@ -157,15 +164,21 @@ def update_site_object_placement(
     geo_placement = ifc_file.create_entity("IfcLocalPlacement", RelativePlacement=geo_axis2)
 
     if is_legacy_global:
-        # 이전 버전에서 직접 주입되어 거대 좌표를 갖고 있던 경우:
-        # 로컬 RelativePlacement를 (0,0,0)으로 리셋하고 부모로 전역 좌표 이동
+        # 이전 버전에서 직접 주입되어 거대 좌표를 갖고 있던 경우 (Revit 등 Legacy 모델):
+        # 로컬 RelativePlacement의 Location만 (0,0,0)으로 리셋하되, 회전 방향(Axis, RefDirection)은 100% 보존/업데이트!
         reset_cp = ifc_file.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0, 0.0))
         rel_placement.Location = reset_cp
-        rel_placement.Axis = None
-        rel_placement.RefDirection = None
-        logger.info(f"Converted legacy global RelativePlacement to (0,0,0) and created parent PlacementRelTo (#{geo_placement.id()})")
+        if not getattr(rel_placement, "Axis", None):
+            rel_placement.Axis = new_axis
+        if not getattr(rel_placement, "RefDirection", None):
+            rel_placement.RefDirection = new_ref_dir
+        logger.info(f"Converted legacy global RelativePlacement location to (0,0,0) and preserved orientation, creating parent PlacementRelTo (#{geo_placement.id()})")
     else:
         # 원래 모델의 고유 로컬 위치 및 회전이 있는 경우: 100% 무손실 보존!
+        if not getattr(rel_placement, "RefDirection", None) and (xaxis_abscissa != 1.0 or xaxis_ordinate != 0.0):
+            rel_placement.RefDirection = new_ref_dir
+        if not getattr(rel_placement, "Axis", None):
+            rel_placement.Axis = new_axis
         logger.info(f"Preserved original local RelativePlacement (#{rel_placement.id()}) and linked parent PlacementRelTo (#{geo_placement.id()})={coords}")
 
     # IfcSite의 PlacementRelTo를 전역 지리참조 부모로 연결!
